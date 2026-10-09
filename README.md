@@ -219,15 +219,25 @@
                 </div>
             </div>
 
-            <!-- Footer Hints -->
-            <div class="text-xs text-gray-400 font-mono text-center mb-1">
-                Ovládanie na PC (test): <span class="text-cyan-300">WASD / Šípky</span> = Pohyb, <span class="text-cyan-300">Medzerník</span> = Streľba
+            <!-- Footer Hints & Zoom Control -->
+            <div class="flex flex-col md:flex-row items-center justify-between w-full max-w-4xl text-xs text-gray-400 font-mono mb-1 gap-2">
+                <div>
+                    Ovládanie na PC: <span class="text-cyan-300">WASD / Šípky</span> = Pohyb, <span class="text-cyan-300">Medzerník</span> = Streľba
+                </div>
+                <!-- Lobby Zoom Controls -->
+                <div class="flex items-center gap-1.5 bg-black/60 px-3 py-1 rounded-lg border border-cyan-500/30">
+                    <span class="text-[11px] text-cyan-300 font-bold mr-1">ZOOM:</span>
+                    <button onclick="adjustZoom(-0.1)" class="neon-button px-2 py-0.5 rounded text-xs font-bold" title="Zmenšiť obraz (Kláves -)">-</button>
+                    <span id="lobby-zoom-val" class="text-cyan-400 font-bold min-w-[40px] text-center font-mono">100%</span>
+                    <button onclick="adjustZoom(0.1)" class="neon-button px-2 py-0.5 rounded text-xs font-bold" title="Zväčšiť obraz (Kláves +)">+</button>
+                    <button onclick="resetZoom()" class="neon-button px-2 py-0.5 rounded text-[10px]" title="Reset (Kláves 0)">RESET</button>
+                </div>
             </div>
         </div>
 
         <!-- IN-GAME HUD Overlay -->
         <div id="game-hud" class="hidden absolute top-4 left-4 right-4 z-10 flex justify-between items-start pointer-events-none">
-            <!-- Game Title HUD -->
+            <!-- Game Title HUD & Zoom Toolbar -->
             <div class="glass-panel p-2.5 px-4 rounded-xl border border-cyan-500/30 flex items-center gap-3">
                 <div class="font-orbitron text-base md:text-lg font-black neon-text-cyan flex items-center gap-2">
                     <i class="fa-solid fa-meteor text-cyan-400"></i> NEON ASTEROIDS
@@ -235,6 +245,17 @@
                 <button onclick="returnToLobby()" class="pointer-events-auto text-xs neon-button px-2.5 py-1 rounded-md">
                     <i class="fa-solid fa-bars"></i> Lobby
                 </button>
+
+                <!-- HUD Zoom Quick Controls -->
+                <div class="pointer-events-auto flex items-center gap-1 ml-2 pl-3 border-l border-cyan-500/30">
+                    <button onclick="adjustZoom(-0.1)" class="neon-button w-7 h-7 rounded flex items-center justify-center font-bold text-xs" title="Zmenšiť (-)">
+                        <i class="fa-solid fa-minus"></i>
+                    </button>
+                    <span id="hud-zoom-val" class="text-xs text-cyan-300 font-mono font-bold w-12 text-center">100%</span>
+                    <button onclick="adjustZoom(0.1)" class="neon-button w-7 h-7 rounded flex items-center justify-center font-bold text-xs" title="Zväčšiť (+)">
+                        <i class="fa-solid fa-plus"></i>
+                    </button>
+                </div>
             </div>
 
             <!-- Live Score Leaderboard -->
@@ -426,6 +447,9 @@
         let canvas, ctx;
         let gameWidth, gameHeight;
 
+        // Display Zoom Scaling Variable (1.0 = 100%)
+        let gameScale = 1.0;
+
         // Entities
         let players = {};
         let asteroids = [];
@@ -434,6 +458,27 @@
 
         // Local Keyboard Controls
         const keys = { left: false, right: false, thrust: false, brake: false, fire: false };
+
+        // Zoom Control Functions
+        function adjustZoom(delta) {
+            gameScale = Math.min(Math.max(0.5, gameScale + delta), 2.0);
+            updateZoomUI();
+            resizeCanvas();
+        }
+
+        function resetZoom() {
+            gameScale = 1.0;
+            updateZoomUI();
+            resizeCanvas();
+        }
+
+        function updateZoomUI() {
+            const percText = Math.round(gameScale * 100) + '%';
+            const lobbyVal = document.getElementById('lobby-zoom-val');
+            const hudVal = document.getElementById('hud-zoom-val');
+            if (lobbyVal) lobbyVal.innerText = percText;
+            if (hudVal) hudVal.innerText = percText;
+        }
 
         class Ship {
             constructor(id, name, color, isLocal = false) {
@@ -794,16 +839,25 @@
         };
 
         function resizeCanvas() {
-            gameWidth = window.innerWidth;
-            gameHeight = window.innerHeight;
-            if (canvas) {
-                canvas.width = gameWidth;
-                canvas.height = gameHeight;
-            }
+            if (!canvas) return;
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            // Compute effective logical size scaled by gameScale
+            gameWidth = window.innerWidth / gameScale;
+            gameHeight = window.innerHeight / gameScale;
         }
 
         function handleKey(e, isDown) {
             if (isController) return;
+
+            // Zoom Keybindings Shortcuts
+            if (isDown) {
+                if (e.key === '+' || e.key === '=') { adjustZoom(0.1); return; }
+                if (e.key === '-' || e.key === '_') { adjustZoom(-0.1); return; }
+                if (e.key === '0') { resetZoom(); return; }
+            }
+
             if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = isDown;
             if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = isDown;
             if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.thrust = isDown;
@@ -1224,10 +1278,19 @@
         }
 
         function renderGame() {
+            ctx.save();
+            
+            // Clear screen in physical pixels
+            ctx.fillStyle = '#030308';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Apply Scale Transform Matrix for sharp viewport scaling
+            ctx.scale(gameScale, gameScale);
+
+            // Draw Background Grid
             ctx.fillStyle = 'rgba(3, 3, 8, 0.4)';
             ctx.fillRect(0, 0, gameWidth, gameHeight);
 
-            // Neon Background Grid
             ctx.strokeStyle = 'rgba(0, 243, 255, 0.04)';
             ctx.lineWidth = 1;
             let gridSize = 60;
@@ -1254,6 +1317,8 @@
             ctx.restore();
 
             for (let id in players) players[id].draw(ctx);
+
+            ctx.restore();
         }
 
         function updateLeaderboardUI() {
